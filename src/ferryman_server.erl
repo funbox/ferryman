@@ -14,23 +14,26 @@
     channels
 }).
 
+start_link(Host, Port, Db, Channels, Handler) when is_binary(Host) ->
+    start_link(binary_to_list(Host), Port, Db, Channels, Handler);
+
 start_link(Host, Port, Db, Channels, Handler) ->
-  gen_server:start_link(?MODULE, [Host, Port, Db, Channels, Handler], []).
+    gen_server:start_link(?MODULE, [Host, Port, Db, Channels, Handler], []).
 
 put_reply(Pid, Id, Msg) ->
-  gen_server:call(Pid, {put_reply, Id, Msg}).
+    gen_server:call(Pid, {put_reply, Id, Msg}).
 
 %% ===================================================================
 %% GEN SERVER
 %% ===================================================================
 
 init([Host, Port, Db, Channels, Handler]) ->
-  error_logger:info_msg("start ferryman_server on redis on ~s:~w[~w] channels ~p", [Host, Port, Db, Channels]),
-  {ok, Sub} = eredis_sub:start_link(Host, Port, ""),
-  {ok, Client} = eredis:start_link(Host, Port, Db),
-  eredis_sub:controlling_process(Sub),
-  eredis_sub:subscribe(Sub, [list_to_binary(C) || C <- Channels]),
-  {ok, #st{sub=Sub, client=Client, handler=Handler, channels = Channels}}.
+    error_logger:info_msg("start ferryman_server on redis on ~s:~w[~w] channels ~p", [Host, Port, Db, Channels]),
+    {ok, Sub} = eredis_sub:start_link(Host, Port, ""),
+    {ok, Client} = eredis:start_link(Host, Port, Db),
+    eredis_sub:controlling_process(Sub),
+    eredis_sub:subscribe(Sub, [list_to_binary(C) || C <- Channels]),
+    {ok, #st{sub=Sub, client=Client, handler=Handler, channels = Channels}}.
 
 handle_cast(_Msg, St) ->
     {stop, error, St}.
@@ -49,17 +52,17 @@ handle_call(_Msg, _From, St) ->
     {stop, error, St}.
 
 handle_info({message, _Channel, Message, _Pid}, St) ->
-  error_logger:info_msg("ferryman_server receive message ~ts", [Message]),
-  Self = self(),
-  spawn_link(fun() -> handle_request(Self, Message, St#st.handler) end),
-  eredis_sub:ack_message(St#st.sub),
-  {noreply, St};
+    error_logger:info_msg("ferryman_server receive message ~ts", [Message]),
+    Self = self(),
+    spawn_link(fun() -> handle_request(Self, Message, St#st.handler) end),
+    eredis_sub:ack_message(St#st.sub),
+    {noreply, St};
 handle_info({eredis_connected, _Pid}, #st{sub = Sub, channels = Channels} = St) ->
-  eredis_sub:subscribe(Sub, [list_to_binary(C) || C <- Channels]),
-  {noreply, St};
+    eredis_sub:subscribe(Sub, [list_to_binary(C) || C <- Channels]),
+    {noreply, St};
 handle_info(_Info, #st{sub = Sub} = St) ->
-  eredis_sub:ack_message(Sub),
-  {noreply, St}.
+    eredis_sub:ack_message(Sub),
+    {noreply, St}.
 
 code_change(_OldVsn, St, _Extra) -> {ok, St}.
 
@@ -70,14 +73,14 @@ terminate(_Reason, _St) -> ok.
 %% ===================================================================
 
 handle_request(ParentPid, Message, Handler) ->
-  case jsonrpc2:handle(Message, Handler, fun jiffy:decode/1, fun jiffy:encode/1) of
-    noreply ->
-      error_logger:info_msg("ferryman_server don't reply for cast message ~s", [Message]),
-      nop;
-    {reply, Msg} ->
-      {MsgAttrs} = jiffy:decode(Msg),
-      Id = proplists:get_value(<<"id">>, MsgAttrs),
-      error_logger:info_msg("ferryman_server reply for message ~ts, with id: ~s", [Msg, Id]),
-      put_reply(ParentPid, Id, Msg)
-  end.
+    case jsonrpc2:handle(Message, Handler, fun jiffy:decode/1, fun jiffy:encode/1) of
+        noreply ->
+            error_logger:info_msg("ferryman_server don't reply for cast message ~s", [Message]),
+            nop;
+        {reply, Msg} ->
+            {MsgAttrs} = jiffy:decode(Msg),
+            Id = proplists:get_value(<<"id">>, MsgAttrs),
+            error_logger:info_msg("ferryman_server reply for message ~ts, with id: ~s", [Msg, Id]),
+            put_reply(ParentPid, Id, Msg)
+    end.
 
